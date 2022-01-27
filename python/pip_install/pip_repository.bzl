@@ -42,6 +42,30 @@ def _get_python_interpreter_attr(rctx):
     else:
         return "python3"
 
+def _os_name(rctx):
+    os_name = rctx.os.name.lower()
+    if "windows" in os_name:
+        return "windows"
+    elif os_name.startswith("mac os"):
+        return "darwin"
+    elif os_name.startswith("linux"):
+        return "linux"
+    return "default"
+
+def _resolve_python_interpreter_target(rctx):
+    if rctx.attr.python_interpreter_target != None:
+        return rctx.attr.python_interpreter_target
+
+    platform_target = rctx.attr.python_interpreter_target_dict.get(_os_name(rctx))
+    if platform_target != None:
+        return Label(platform_target)
+
+    default_target = rctx.attr.python_interpreter_target_dict.get("default")
+    if default_target != None:
+        return Label(default_target)
+
+    return None
+
 def _resolve_python_interpreter(rctx):
     """Helper function to find the python interpreter from the common attributes
 
@@ -50,10 +74,10 @@ def _resolve_python_interpreter(rctx):
     Returns: Python interpreter path.
     """
     python_interpreter = _get_python_interpreter_attr(rctx)
+    python_interpreter_target = _resolve_python_interpreter_target(rctx)
 
-    if rctx.attr.python_interpreter_target != None:
-        target = rctx.attr.python_interpreter_target
-        python_interpreter = rctx.path(target)
+    if python_interpreter_target != None:
+        python_interpreter = rctx.path(python_interpreter_target)
     else:
         if "/" not in python_interpreter:
             python_interpreter = rctx.which(python_interpreter)
@@ -163,8 +187,9 @@ def _pip_repository_impl(rctx):
         ]
 
         args += ["--python_interpreter", _get_python_interpreter_attr(rctx)]
-        if rctx.attr.python_interpreter_target:
-            args += ["--python_interpreter_target", str(rctx.attr.python_interpreter_target)]
+        python_interpreter_target = _resolve_python_interpreter_target(rctx)
+        if python_interpreter_target:
+            args += ["--python_interpreter_target", str(python_interpreter_target)]
         progress_message = "Parsing requirements to starlark"
     else:
         args = [
@@ -249,6 +274,14 @@ of a binary found on the host's `PATH` environment variable. If no value is set
     ),
     "python_interpreter_target": attr.label(
         allow_single_file = True,
+        doc = """
+If you are using a custom python interpreter built by another repository rule,
+use this attribute to specify its BUILD target. This allows pip_repository to invoke
+pip using the same interpreter as your toolchain. If set, takes precedence over
+python_interpreter.
+""",
+    ),
+    "python_interpreter_target_dict": attr.string_dict(
         doc = """
 If you are using a custom python interpreter built by another repository rule,
 use this attribute to specify its BUILD target. This allows pip_repository to invoke
